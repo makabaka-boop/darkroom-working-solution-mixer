@@ -365,6 +365,27 @@ header h1 {
   filter: brightness(1.1);
 }
 
+/* 结果区内的「存入容量台账」入口 */
+.store-ledger {
+  border-top: 1px dashed var(--panel-border);
+  margin-top: 18px;
+  padding-top: 4px;
+}
+
+.store-ledger h3 {
+  margin: 12px 0 4px;
+}
+
+/* 台账详情中的配液来源摘要 */
+.mix-source {
+  border: 1px dashed var(--panel-border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: var(--muted);
+  font-size: 14px;
+  margin: 4px 0 10px;
+}
+
 /* 配液卡：屏幕上呈纸张样式，打印时只保留它 */
 .print-card {
   background: #fdfbf7;

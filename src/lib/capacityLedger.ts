@@ -5,17 +5,22 @@
  * 逐次登记的处理用量与剩余容量，避免凭记忆继续使用已耗尽的药液。
  *
  * 契约 = 两个命令（纯函数，不修改传入状态，返回新状态）：
- * - createBatch：创建带名称与额定容量的药液批次；
+ * - createBatch：创建带名称与额定容量的药液批次，可附带一份配液来源快照；
  * - recordUsage：向指定批次登记一次处理用量，写入前重新计算剩余量，
  *   剩余量 = 额定容量 − 该批全部已登记用量之和；登记后剩余为 0 即「已耗尽」。
  *
  * 使用记录一旦写入不可修改：命令只追加、不更新、不删除；
  * 累计用量 / 剩余容量 / 状态均由记录推导，不单独存储。
  *
+ * 配液来源快照（可选）：从配液计算结果区「存入容量台账」时，
+ * 把同一次计算的稀释比例、目标总量、量筒容量、分罐数与浓缩液/清水体积
+ * 逐字段拷贝固定保存，之后不随界面参数变化；手工创建的批次没有该字段。
+ *
  * 校验失败时返回中文原因且不产生任何写入：
  * - 名称为空；
  * - 额定容量 / 胶片数量为空、非整数或非正整数；
- * - 登记数量超过当前剩余容量。
+ * - 登记数量超过当前剩余容量；
+ * - 附带的配液来源快照结构不完整或违反「浓缩液 + 清水 = 目标总量」。
  * 字段校验函数同时导出，界面可借此把错误放到对应字段下方，
  * 但命令本身仍是最终闸门（同样校验在命令内再执行一次）。
  */
@@ -36,6 +41,30 @@ export interface ChemicalBatch {
   capacity: number;
   /** 创建时间（ISO 8601） */
   createdAt: string;
+  /**
+   * 配液来源快照（可选）：创建时从同一次配液计算结果固定保存，
+   * 之后不再变化；手工创建的批次没有该字段。
+   */
+  mixSource?: MixSourceSnapshot;
+}
+
+/**
+ * 配液来源快照：一批药液「来自哪次配液计算」的完整参数与结果。
+ * 字段名与 dilution.ts 的 MixResult 对齐，由界面从当次计算结果逐字段拷贝。
+ */
+export interface MixSourceSnapshot {
+  /** 稀释式 1+n 的 n */
+  n: number;
+  /** 目标总量（mL） */
+  total: number;
+  /** 量筒容量（mL） */
+  capacity: number;
+  /** 显影罐数量（分罐数） */
+  tanks: number;
+  /** 取整后的浓缩液体积（mL） */
+  concentrate: number;
+  /** 清水体积（mL），恒满足 concentrate + water = total */
+  water: number;
 }
 
 export interface UsageRecord {
@@ -90,6 +119,32 @@ function parseStrictInteger(raw: string): number | null {
   return Number.parseInt(text, 10);
 }
 
+/** 判断未知值是否为正整数（用于快照结构校验）。 */
+function isPositiveIntegerValue(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+/**
+ * 配液来源快照结构校验：六个数值均为正整数，
+ * 且满足配液计算的核心不变量「浓缩液 + 清水 = 目标总量」。
+ * 命令与持久化读取共用本校验。
+ */
+export function isMixSourceSnapshot(value: unknown): value is MixSourceSnapshot {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  if (
+    !isPositiveIntegerValue(candidate.n) ||
+    !isPositiveIntegerValue(candidate.total) ||
+    !isPositiveIntegerValue(candidate.capacity) ||
+    !isPositiveIntegerValue(candidate.tanks) ||
+    !isPositiveIntegerValue(candidate.concentrate) ||
+    !isPositiveIntegerValue(candidate.water)
+  ) {
+    return false;
+  }
+  return candidate.concentrate + candidate.water === candidate.total;
+}
+
 /** 批次名称校验：空（含纯空白）不允许。 */
 export function validateBatchName(name: string): string | undefined {
   if (name.trim() === '') return '请输入药液名称';
@@ -140,11 +195,18 @@ export interface CreateBatchInput {
   name: string;
   /** 表单原始字符串，由命令内部校验 */
   capacity: string;
+  /**
+   * 可选：配液来源快照，必须取自同一次配液计算结果。
+   * 命令会校验其结构完整性，不合格时拒绝创建（不写入任何数据）。
+   */
+  mixSource?: MixSourceSnapshot;
 }
 
 /**
  * 命令一：创建药液批次。
- * 名称为空、额定容量为空 / 非整数 / 非正整数时返回原因，不写入任何记录。
+ * 名称为空、额定容量为空 / 非整数 / 非正整数，或附带的配液来源快照
+ * 结构不完整时返回原因，不写入任何记录。
+ * 快照通过校验后逐字段拷贝并冻结，自此与后续计算无关（固定保存）。
  */
 export function createBatch(
   state: LedgerState,
@@ -155,12 +217,27 @@ export function createBatch(
   if (nameError) return { ok: false, error: nameError };
   const capacityError = validateCapacityInput(input.capacity);
   if (capacityError) return { ok: false, error: capacityError };
+  if (input.mixSource !== undefined && !isMixSourceSnapshot(input.mixSource)) {
+    return { ok: false, error: '配液来源数据不完整，请重新计算后再存入' };
+  }
 
   const batch: ChemicalBatch = Object.freeze({
     id: deps.nextId(),
     name: input.name.trim(),
     capacity: parseStrictInteger(input.capacity)!,
     createdAt: deps.now().toISOString(),
+    ...(input.mixSource === undefined
+      ? {}
+      : {
+          mixSource: Object.freeze({
+            n: input.mixSource.n,
+            total: input.mixSource.total,
+            capacity: input.mixSource.capacity,
+            tanks: input.mixSource.tanks,
+            concentrate: input.mixSource.concentrate,
+            water: input.mixSource.water,
+          }),
+        }),
   });
   return {
     ok: true,

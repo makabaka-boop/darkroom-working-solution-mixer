@@ -11,6 +11,15 @@ import {
   type MeasureStep,
   type RawInputs,
 } from './lib/dilution';
+import {
+  createBatch,
+  defaultLedgerDeps,
+  validateBatchName,
+  validateCapacityInput,
+  type LedgerState,
+  type MixSourceSnapshot,
+} from './lib/capacityLedger';
+import { browserStorage, loadLedger, saveLedger } from './lib/ledgerStorage';
 import Ledger from './Ledger';
 
 type View = 'mix' | 'ledger';
@@ -58,6 +67,20 @@ export default function App() {
   const [raw, setRaw] = useState<RawInputs>({ n: '4', total: '1000', capacity: '250', tanks: '1' });
   const [checked, setChecked] = useState<boolean[]>([]);
 
+  // 容量台账状态由本组件持有并整体持久化：配液结果区可直接建档后切换过去展示。
+  const [ledger, setLedger] = useState<LedgerState>(() => loadLedger(browserStorage()));
+  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(null);
+  const ledgerDeps = useMemo(() => defaultLedgerDeps(), []);
+  useEffect(() => {
+    saveLedger(browserStorage(), ledger);
+  }, [ledger]);
+
+  // 「存入容量台账」表单（仅在配液结果合法时出现）
+  const [storeName, setStoreName] = useState('');
+  const [storeCapacity, setStoreCapacity] = useState('');
+  const [storeNameError, setStoreNameError] = useState<string | null>(null);
+  const [storeCapacityError, setStoreCapacityError] = useState<string | null>(null);
+
   // 每次输入变化都重新校验、重新计算；任一字段非法则 result 为 null，
   // 旧配液卡随之卸载，不会残留。
   const { inputs, errors } = useMemo(() => validateInputs(raw), [raw]);
@@ -95,6 +118,43 @@ export default function App() {
 
   const toggleStep = (index: number) => {
     setChecked((prev) => prev.map((value, i) => (i === index ? !value : value)));
+  };
+
+  // 把本次配液结果连同批次一并写入容量台账，随后切换过去展示来源摘要。
+  // 名称或容量校验失败时就地说明原因：不切换页面、不写入台账。
+  const submitStoreToLedger = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!result) return;
+    const nameErr = validateBatchName(storeName);
+    const capacityErr = validateCapacityInput(storeCapacity);
+    setStoreNameError(nameErr ?? null);
+    setStoreCapacityError(capacityErr ?? null);
+    if (nameErr || capacityErr) return;
+
+    // 快照逐字段取自当前这一次计算结果（同一 result），不做任何重算
+    const mixSource: MixSourceSnapshot = {
+      n: result.n,
+      total: result.total,
+      capacity: result.capacity,
+      tanks: result.tanks,
+      concentrate: result.concentrate,
+      water: result.water,
+    };
+    const created = createBatch(
+      ledger,
+      { name: storeName, capacity: storeCapacity, mixSource },
+      ledgerDeps,
+    );
+    if (!created.ok) {
+      // 命令级失败同样就地说明，不切换页面、不写入台账
+      setStoreCapacityError(created.error);
+      return;
+    }
+    setLedger(created.state);
+    setSelectedBatchId(created.value.id);
+    setStoreName('');
+    setStoreCapacity('');
+    setView('ledger');
   };
 
   // tankNumber 仅在分罐时传入：步骤名称必须显式包含罐号，
@@ -147,7 +207,12 @@ export default function App() {
 
       {view === 'ledger' ? (
         <main>
-          <Ledger />
+          <Ledger
+            ledger={ledger}
+            onLedgerChange={setLedger}
+            selectedId={selectedBatchId}
+            onSelectBatch={setSelectedBatchId}
+          />
         </main>
       ) : (
       <main>
@@ -263,6 +328,80 @@ export default function App() {
               <button type="button" className="print-button" onClick={() => window.print()}>
                 打印配液卡
               </button>
+
+              <div className="store-ledger" data-testid="store-to-ledger">
+                <h3>存入容量台账</h3>
+                <p className="note">
+                  把本次配液参数（1+{result.n}、总量 {result.total} mL、显影罐 {result.tanks}{' '}
+                  只）随批次固定保存，台账中可追溯来源。
+                </p>
+                <form onSubmit={submitStoreToLedger} noValidate>
+                  <div className="fields">
+                    <div className={`field${storeNameError ? ' field--invalid' : ''}`}>
+                      <label htmlFor="store-name-input">药液批次名称</label>
+                      <input
+                        id="store-name-input"
+                        data-testid="store-name-input"
+                        value={storeName}
+                        onChange={(event) => {
+                          setStoreName(event.target.value);
+                          setStoreNameError(null);
+                        }}
+                        aria-invalid={Boolean(storeNameError)}
+                        aria-describedby="error-store-name store-name-hint"
+                      />
+                      <small id="store-name-hint" className="hint">
+                        如：D-76 显影液（2026-09 配制）
+                      </small>
+                      {storeNameError && (
+                        <p
+                          className="error"
+                          role="alert"
+                          id="error-store-name"
+                          data-testid="error-store-name"
+                        >
+                          {storeNameError}
+                        </p>
+                      )}
+                    </div>
+                    <div className={`field${storeCapacityError ? ' field--invalid' : ''}`}>
+                      <label htmlFor="store-capacity-input">额定处理容量（等效胶片数）</label>
+                      <input
+                        id="store-capacity-input"
+                        data-testid="store-capacity-input"
+                        inputMode="numeric"
+                        value={storeCapacity}
+                        onChange={(event) => {
+                          setStoreCapacity(event.target.value);
+                          setStoreCapacityError(null);
+                        }}
+                        aria-invalid={Boolean(storeCapacityError)}
+                        aria-describedby="error-store-capacity store-capacity-hint"
+                      />
+                      <small id="store-capacity-hint" className="hint">
+                        整批药液可处理的等效胶片总数，正整数
+                      </small>
+                      {storeCapacityError && (
+                        <p
+                          className="error"
+                          role="alert"
+                          id="error-store-capacity"
+                          data-testid="error-store-capacity"
+                        >
+                          {storeCapacityError}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    className="action-button"
+                    data-testid="store-to-ledger-button"
+                  >
+                    存入容量台账
+                  </button>
+                </form>
+              </div>
             </section>
 
             {result.tanks === 1 ? (

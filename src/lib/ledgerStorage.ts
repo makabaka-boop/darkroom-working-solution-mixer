@@ -4,10 +4,14 @@
  * 批次与使用记录整体存为一个 JSON 文档；读取时逐字段校验结构，
  * 损坏或版本不符的数据一律视为空台账，绝不让异常进入界面。
  * 使用记录只追加不修改，因此这里也只提供整体读 / 写，不提供单条更新。
+ *
+ * 批次的配液来源快照（mixSource）是可选字段：旧数据没有它，照常读取；
+ * 一旦出现就必须通过结构校验，否则整份数据视为不可信。
  */
 
 import {
   EMPTY_LEDGER,
+  isMixSourceSnapshot,
   type ChemicalBatch,
   type LedgerState,
   type UsageRecord,
@@ -44,12 +48,27 @@ function parseBatch(value: unknown): ChemicalBatch | null {
   ) {
     return null;
   }
-  return {
+  const batch: ChemicalBatch = {
     id: candidate.id,
     name: candidate.name,
     capacity: candidate.capacity,
     createdAt: candidate.createdAt,
   };
+  // 配液来源快照为可选字段：旧数据没有它，照常接受；
+  // 一旦出现就必须结构完整，否则整份数据不可信。
+  if (candidate.mixSource !== undefined) {
+    if (!isMixSourceSnapshot(candidate.mixSource)) return null;
+    const snapshot = candidate.mixSource;
+    batch.mixSource = {
+      n: snapshot.n,
+      total: snapshot.total,
+      capacity: snapshot.capacity,
+      tanks: snapshot.tanks,
+      concentrate: snapshot.concentrate,
+      water: snapshot.water,
+    };
+  }
+  return batch;
 }
 
 function parseRecord(value: unknown): UsageRecord | null {

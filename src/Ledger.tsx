@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   BATCH_STATUS_LABEL,
   batchRecords,
@@ -13,27 +13,30 @@ import {
   validateFilmsInput,
   type LedgerState,
 } from './lib/capacityLedger';
-import { browserStorage, loadLedger, saveLedger } from './lib/ledgerStorage';
 
 function formatTime(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString('zh-CN', { hour12: false });
 }
 
+export interface LedgerProps {
+  /** 当前台账状态（由 App 持有并持久化） */
+  ledger: LedgerState;
+  /** 命令产出新状态后回写 */
+  onLedgerChange: (next: LedgerState) => void;
+  /** 当前选中的批次 id（由 App 持有，配液建档后可跳转选中） */
+  selectedId: string | null;
+  onSelectBatch: (id: string | null) => void;
+}
+
 /**
  * 容量台账视图：创建药液批次 → 选中批次登记用量 → 按时间查看使用记录。
- * 数据即 localStorage 中的台账；每次命令产出的新状态都会整体写回，
+ * 台账状态由 App 持有：每次命令产出的新状态经 onLedgerChange 回写并整体持久化，
  * 因此刷新后还原同一台账。所有写入都经过领域命令，失败原因就地展示。
+ * 从配液计算「存入容量台账」建立的批次带有配液来源快照，选中后展示来源摘要。
  */
-export default function Ledger() {
-  const [ledger, setLedger] = useState<LedgerState>(() => loadLedger(browserStorage()));
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+export default function Ledger({ ledger, onLedgerChange, selectedId, onSelectBatch }: LedgerProps) {
   const deps = useMemo(() => defaultLedgerDeps(), []);
-
-  // 状态每次变化都整体写回 localStorage（记录只追加，无单条修改入口）。
-  useEffect(() => {
-    saveLedger(browserStorage(), ledger);
-  }, [ledger]);
 
   // 新建批次表单
   const [name, setName] = useState('');
@@ -63,8 +66,8 @@ export default function Ledger() {
       setCapacityError(result.error);
       return;
     }
-    setLedger(result.state);
-    setSelectedId(result.value.id);
+    onLedgerChange(result.state);
+    onSelectBatch(result.value.id);
     setName('');
     setCapacity('');
   };
@@ -82,7 +85,7 @@ export default function Ledger() {
       setFilmsError(result.error);
       return;
     }
-    setLedger(result.state);
+    onLedgerChange(result.state);
     setFilms('');
     setNote('');
   };
@@ -169,7 +172,7 @@ export default function Ledger() {
                     data-testid="batch-item"
                     aria-pressed={isSelected}
                     onClick={() => {
-                      setSelectedId(batch.id);
+                      onSelectBatch(batch.id);
                       setFilmsError(null);
                     }}
                   >
@@ -211,6 +214,13 @@ export default function Ledger() {
               <dd data-testid="detail-status">{BATCH_STATUS_LABEL[batchStatus(selected, ledger)]}</dd>
             </div>
           </dl>
+          {selected.mixSource && (
+            <p className="mix-source" data-testid="mix-source-summary">
+              配液来源：稀释式 1+{selected.mixSource.n}，目标总量 {selected.mixSource.total} mL，
+              量筒容量 {selected.mixSource.capacity} mL，显影罐 {selected.mixSource.tanks} 只，
+              浓缩液 {selected.mixSource.concentrate} mL ＋ 清水 {selected.mixSource.water} mL
+            </p>
+          )}
           {batchStatus(selected, ledger) === 'exhausted' && (
             <p className="note" data-testid="exhausted-note">
               本批药液已耗尽，请配制新批次，不要继续使用。
