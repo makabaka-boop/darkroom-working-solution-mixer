@@ -4,8 +4,11 @@ import {
   validateInputs,
   N_MIN,
   N_MAX,
+  TANKS_MIN,
+  TANKS_MAX,
   VOLUME_MIN,
   VOLUME_MAX,
+  type MeasureStep,
   type RawInputs,
 } from './lib/dilution';
 
@@ -37,10 +40,17 @@ const FIELDS: Array<{
     testId: 'input-capacity',
     errorTestId: 'error-capacity',
   },
+  {
+    key: 'tanks',
+    label: '显影罐数量',
+    hint: `${TANKS_MIN}–${TANKS_MAX} 的整数`,
+    testId: 'input-tanks',
+    errorTestId: 'error-tanks',
+  },
 ];
 
 export default function App() {
-  const [raw, setRaw] = useState<RawInputs>({ n: '4', total: '1000', capacity: '250' });
+  const [raw, setRaw] = useState<RawInputs>({ n: '4', total: '1000', capacity: '250', tanks: '1' });
   const [checked, setChecked] = useState<boolean[]>([]);
 
   // 每次输入变化都重新校验、重新计算；任一字段非法则 result 为 null，
@@ -48,12 +58,30 @@ export default function App() {
   const { inputs, errors } = useMemo(() => validateInputs(raw), [raw]);
   const result = useMemo(() => (inputs ? computeMix(inputs) : null), [inputs]);
 
-  useEffect(() => {
-    setChecked(result ? result.steps.map(() => false) : []);
+  // 展示步骤 = 各罐步骤按罐号顺序拼接（罐数为 1 时即整批步骤）。
+  const displaySteps = useMemo(
+    () => (result ? result.tankPlans.flatMap((tank) => tank.steps) : []),
+    [result],
+  );
+  // 每罐第一步在展示序列中的下标，用于定位跨罐的勾选状态。
+  const tankOffsets = useMemo(() => {
+    if (!result) return [];
+    const offsets: number[] = [];
+    let next = 0;
+    for (const tank of result.tankPlans) {
+      offsets.push(next);
+      next += tank.steps.length;
+    }
+    return offsets;
   }, [result]);
 
+  // 任一参数变化都会得到新的 result，全部勾选状态随之清空。
+  useEffect(() => {
+    setChecked(displaySteps.map(() => false));
+  }, [displaySteps]);
+
   const doneCount = checked.filter(Boolean).length;
-  const stepsSum = result ? result.steps.reduce((sum, s) => sum + s.amount, 0) : 0;
+  const stepsSum = displaySteps.reduce((sum, s) => sum + s.amount, 0);
   const cardDate = useMemo(() => new Date().toLocaleDateString('zh-CN'), [result]);
 
   const setField = (key: keyof RawInputs) => (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -63,6 +91,24 @@ export default function App() {
   const toggleStep = (index: number) => {
     setChecked((prev) => prev.map((value, i) => (i === index ? !value : value)));
   };
+
+  const renderStep = (step: MeasureStep, index: number, capacity: number) => (
+    <li key={`${step.liquid}-${step.step}-${index}`} data-testid="measure-step">
+      <label className={checked[index] ? 'step step--done' : 'step'}>
+        <input
+          type="checkbox"
+          data-testid="step-checkbox"
+          checked={checked[index] ?? false}
+          onChange={() => toggleStep(index)}
+        />
+        <span>
+          {step.liquidLabel} 第 {step.step}/{step.ofSteps} 次：量取{' '}
+          <strong data-testid="step-amount">{step.amount}</strong> mL
+          {step.amount === capacity ? '（满量筒）' : '（余量）'}
+        </span>
+      </label>
+    </li>
+  );
 
   return (
     <div className="app">
@@ -104,6 +150,7 @@ export default function App() {
             <section className="panel result no-print" data-testid="result-card" aria-label="配液结果">
               <h2>
                 配液结果 <span className="ratio">1+{result.n}</span>
+                {result.tanks > 1 && <span className="ratio">{result.tanks} 罐</span>}
               </h2>
               <dl className="summary">
                 <div>
@@ -124,31 +171,45 @@ export default function App() {
                 {result.concentrate} mL；清水 = 目标总量 {result.total} mL − 取整后浓缩液。
               </p>
 
-              <h3>
-                量取步骤
-                <span className="progress" data-testid="steps-progress">
-                  已勾选 {doneCount}/{result.steps.length}
-                </span>
-              </h3>
-              <ol className="steps">
-                {result.steps.map((step, index) => (
-                  <li key={`${step.liquid}-${step.step}`} data-testid="measure-step">
-                    <label className={checked[index] ? 'step step--done' : 'step'}>
-                      <input
-                        type="checkbox"
-                        data-testid="step-checkbox"
-                        checked={checked[index] ?? false}
-                        onChange={() => toggleStep(index)}
-                      />
-                      <span>
-                        {step.liquidLabel} 第 {step.step}/{step.ofSteps} 次：量取{' '}
-                        <strong data-testid="step-amount">{step.amount}</strong> mL
-                        {step.amount === result.capacity ? '（满量筒）' : '（余量）'}
-                      </span>
-                    </label>
-                  </li>
-                ))}
-              </ol>
+              {result.tanks === 1 ? (
+                <>
+                  <h3>
+                    量取步骤
+                    <span className="progress" data-testid="steps-progress">
+                      已勾选 {doneCount}/{displaySteps.length}
+                    </span>
+                  </h3>
+                  <ol className="steps">
+                    {displaySteps.map((step, index) => renderStep(step, index, result.capacity))}
+                  </ol>
+                </>
+              ) : (
+                <>
+                  <p className="note" data-testid="tank-note">
+                    整批工作液只算一次，按下表分装 {result.tanks} 只显影罐：目标总量与浓缩液分别均分，
+                    余量依次补给前面的罐，各罐总量相差不超过 1 mL。
+                  </p>
+                  <h3>
+                    分罐量取步骤
+                    <span className="progress" data-testid="steps-progress">
+                      已勾选 {doneCount}/{displaySteps.length}
+                    </span>
+                  </h3>
+                  {result.tankPlans.map((tank, tankIndex) => (
+                    <section className="tank-plan" data-testid="tank-plan" key={tank.index}>
+                      <h4 data-testid="tank-title">
+                        罐 {tank.index}：目标 {tank.total} mL ＝ 浓缩液 {tank.concentrate} mL ＋ 清水{' '}
+                        {tank.water} mL
+                      </h4>
+                      <ol className="steps">
+                        {tank.steps.map((step, i) =>
+                          renderStep(step, tankOffsets[tankIndex] + i, result.capacity),
+                        )}
+                      </ol>
+                    </section>
+                  ))}
+                </>
+              )}
               <p className="note" data-testid="steps-sum">
                 校验：每步 ≤ 量筒容量 {result.capacity} mL；各步合计 {stepsSum} mL = 目标总量{' '}
                 {result.total} mL{stepsSum === result.total ? ' ✓' : ' ✗'}
@@ -159,59 +220,130 @@ export default function App() {
               </button>
             </section>
 
-            <section className="print-card" data-testid="print-card" aria-label="配液卡">
-              <h2>暗房配液卡</h2>
-              <table>
-                <tbody>
-                  <tr>
-                    <th>日期</th>
-                    <td>{cardDate}</td>
-                    <th>稀释式</th>
-                    <td>1+{result.n}</td>
-                  </tr>
-                  <tr>
-                    <th>目标总量</th>
-                    <td>{result.total} mL</td>
-                    <th>量筒容量</th>
-                    <td>{result.capacity} mL</td>
-                  </tr>
-                  <tr>
-                    <th>浓缩液</th>
-                    <td>{result.concentrate} mL</td>
-                    <th>清水</th>
-                    <td>{result.water} mL</td>
-                  </tr>
-                </tbody>
-              </table>
-              <h3>量取步骤</h3>
-              <table>
-                <thead>
-                  <tr>
-                    <th>✓</th>
-                    <th>液体</th>
-                    <th>次数</th>
-                    <th>体积</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.steps.map((step) => (
-                    <tr key={`card-${step.liquid}-${step.step}`}>
-                      <td className="box">☐</td>
-                      <td>{step.liquidLabel}</td>
-                      <td>
-                        {step.step}/{step.ofSteps}
-                      </td>
-                      <td>{step.amount} mL</td>
+            {result.tanks === 1 ? (
+              <section className="print-card" data-testid="print-card" aria-label="配液卡">
+                <h2>暗房配液卡</h2>
+                <table>
+                  <tbody>
+                    <tr>
+                      <th>日期</th>
+                      <td>{cardDate}</td>
+                      <th>稀释式</th>
+                      <td>1+{result.n}</td>
                     </tr>
-                  ))}
-                  <tr className="total-row">
-                    <td colSpan={3}>合计</td>
-                    <td>{stepsSum} mL</td>
-                  </tr>
-                </tbody>
-              </table>
-              <p className="sign">配制人：＿＿＿＿＿＿　复核人：＿＿＿＿＿＿</p>
-            </section>
+                    <tr>
+                      <th>目标总量</th>
+                      <td>{result.total} mL</td>
+                      <th>量筒容量</th>
+                      <td>{result.capacity} mL</td>
+                    </tr>
+                    <tr>
+                      <th>浓缩液</th>
+                      <td>{result.concentrate} mL</td>
+                      <th>清水</th>
+                      <td>{result.water} mL</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <h3>量取步骤</h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>✓</th>
+                      <th>液体</th>
+                      <th>次数</th>
+                      <th>体积</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.steps.map((step) => (
+                      <tr key={`card-${step.liquid}-${step.step}`}>
+                        <td className="box">☐</td>
+                        <td>{step.liquidLabel}</td>
+                        <td>
+                          {step.step}/{step.ofSteps}
+                        </td>
+                        <td>{step.amount} mL</td>
+                      </tr>
+                    ))}
+                    <tr className="total-row">
+                      <td colSpan={3}>合计</td>
+                      <td>{stepsSum} mL</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p className="sign">配制人：＿＿＿＿＿＿　复核人：＿＿＿＿＿＿</p>
+              </section>
+            ) : (
+              <section className="print-card" data-testid="print-card" aria-label="配液卡">
+                <h2>暗房配液卡</h2>
+                <table>
+                  <tbody>
+                    <tr>
+                      <th>日期</th>
+                      <td>{cardDate}</td>
+                      <th>稀释式</th>
+                      <td>1+{result.n}</td>
+                    </tr>
+                    <tr>
+                      <th>目标总量</th>
+                      <td>{result.total} mL</td>
+                      <th>量筒容量</th>
+                      <td>{result.capacity} mL</td>
+                    </tr>
+                    <tr>
+                      <th>浓缩液</th>
+                      <td>{result.concentrate} mL</td>
+                      <th>清水</th>
+                      <td>{result.water} mL</td>
+                    </tr>
+                    <tr>
+                      <th>显影罐数量</th>
+                      <td colSpan={3}>{result.tanks} 只</td>
+                    </tr>
+                  </tbody>
+                </table>
+                {result.tankPlans.map((tank) => (
+                  <div key={`print-tank-${tank.index}`} data-testid="print-tank">
+                    <h3>
+                      罐 {tank.index}：目标 {tank.total} mL（浓缩液 {tank.concentrate} mL ＋ 清水{' '}
+                      {tank.water} mL）
+                    </h3>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>✓</th>
+                          <th>液体</th>
+                          <th>次数</th>
+                          <th>体积</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tank.steps.map((step) => (
+                          <tr key={`card-tank-${tank.index}-${step.liquid}-${step.step}`}>
+                            <td className="box">☐</td>
+                            <td>{step.liquidLabel}</td>
+                            <td>
+                              {step.step}/{step.ofSteps}
+                            </td>
+                            <td>{step.amount} mL</td>
+                          </tr>
+                        ))}
+                        <tr className="total-row">
+                          <td colSpan={3}>罐 {tank.index} 合计</td>
+                          <td>{tank.total} mL</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+                <p className="batch-total" data-testid="print-batch-total">
+                  整批合计 {result.total} mL（浓缩液 {result.concentrate} mL ＋ 清水 {result.water}{' '}
+                  mL）
+                </p>
+                <p className="sign">配制人：＿＿＿＿＿＿　复核人：＿＿＿＿＿＿</p>
+              </section>
+            )}
           </>
         )}
       </main>

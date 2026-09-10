@@ -32,4 +32,11 @@ describe('App 渲染冒烟（默认 1+4 / 1000 mL / 250 mL 量筒）', () => {
     expect(html).toContain('data-testid="print-card"');
     expect(html).toContain('data-testid="step-checkbox"');
   });
+
+  it('默认罐数为 1：不出现分罐区块，打印卡保持单批格式', () => {
+    expect(html).toContain('data-testid="input-tanks"');
+    expect(html).not.toContain('data-testid="tank-plan"');
+    expect(html).not.toContain('data-testid="print-tank"');
+    expect(html).not.toContain('<th>显影罐数量</th>');
+  });
 });
