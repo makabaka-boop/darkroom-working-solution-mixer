@@ -202,3 +202,78 @@ test('分罐流程：输入罐数 → 按罐勾选全部步骤 → 核对打印�
   await expect(printTanks.nth(2)).toContainText('浓缩液 66 mL');
   await expect(page.getByTestId('print-batch-total')).toContainText('整批合计 1000 mL');
 });
+
+test('无障碍回归：三罐时每个量取复选框的可访问名称明确包含所属罐号', async ({ page }) => {
+  await fillForm(page, '4', '1000', '250');
+  await page.getByTestId('input-tanks').fill('3');
+
+  // 三罐各 3 步，读屏逐项浏览时不能只听到重复的液体/次数，必须能辨别罐号
+  const checkboxes = page.getByRole('checkbox', { name: /罐 \d+：/ });
+  await expect(checkboxes).toHaveCount(9);
+  for (const tank of [1, 2, 3]) {
+    await expect(
+      page.getByRole('checkbox', { name: new RegExp(`罐 ${tank}：`) }),
+    ).toHaveCount(3);
+  }
+  // 罐 1 首步的完整名称包含罐号、液体与体积信息
+  await expect(
+    page.getByRole('checkbox', { name: '罐 1：浓缩液 第 1/1 次：量取 67 mL（余量）' }),
+  ).toHaveCount(1);
+
+  // 兼容：单罐步骤名称保持原样，不额外引入罐号
+  await page.getByTestId('input-tanks').fill('1');
+  await expect(page.getByRole('checkbox', { name: /罐 \d+：/ })).toHaveCount(0);
+  await expect(
+    page.getByRole('checkbox', { name: '浓缩液 第 1/1 次：量取 200 mL（余量）' }),
+  ).toHaveCount(1);
+});
+
+test('无障碍回归：进度区为 polite live region，连续勾选后最新进度可被读屏播报', async ({ page }) => {
+  await fillForm(page, '4', '1000', '250');
+  await page.getByTestId('input-tanks').fill('3');
+
+  const progress = page.getByTestId('steps-progress');
+  await expect(progress).toHaveAttribute('role', 'status');
+  await expect(progress).toHaveAttribute('aria-live', 'polite');
+  await expect(progress).toHaveAttribute('aria-atomic', 'true');
+
+  const boxes = page.getByTestId('step-checkbox');
+  await expect(progress).toContainText('0/9');
+  await boxes.nth(0).check();
+  // 每次勾选后 live region 内的文本即最新进度（aria-atomic 整体播报）
+  await expect(progress).toHaveText(/已勾选 1\/9/);
+  await boxes.nth(1).check();
+  await expect(progress).toHaveText(/已勾选 2\/9/);
+});
+
+test('打印回归：三罐步骤全部勾选后，打印卡保留已勾选完成状态', async ({ page }) => {
+  await fillForm(page, '4', '1000', '250');
+  await page.getByTestId('input-tanks').fill('3');
+
+  const card = page.getByTestId('print-card');
+  // 初始：打印卡 9 个完成标记全部为空框
+  await expect(card.getByTestId('print-step-box')).toHaveCount(9);
+  await expect(card.getByTestId('print-step-box')).toHaveText(Array(9).fill('☐'));
+
+  // 三罐步骤全部勾选完成
+  const boxes = page.getByTestId('step-checkbox');
+  for (let i = 0; i < 9; i += 1) {
+    await boxes.nth(i).check();
+  }
+  await expect(page.getByTestId('steps-progress')).toContainText('9/9');
+
+  // 打印预览（打印卡始终渲染在页面上）中的完成标记全部为已勾选
+  const printBoxes = card.getByTestId('print-step-box');
+  await expect(printBoxes).toHaveCount(9);
+  await expect(printBoxes).toHaveText(Array(9).fill('☑'));
+
+  // 兼容：取消勾选后对应标记恢复为空框；参数变化清空勾选后全部回到空框
+  await boxes.nth(0).uncheck();
+  const printTexts = await printBoxes.allTextContents();
+  expect(printTexts[0]).toBe('☐');
+  expect(printTexts.filter((t) => t === '☑')).toHaveLength(8);
+
+  await page.getByTestId('input-total').fill('999');
+  await page.getByTestId('input-total').fill('1000');
+  await expect(card.getByTestId('print-step-box')).toHaveText(Array(9).fill('☐'));
+});

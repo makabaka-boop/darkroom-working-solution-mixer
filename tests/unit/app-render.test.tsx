@@ -39,4 +39,17 @@ describe('App 渲染冒烟（默认 1+4 / 1000 mL / 250 mL 量筒）', () => {
     expect(html).not.toContain('data-testid="print-tank"');
     expect(html).not.toContain('<th>显影罐数量</th>');
   });
+
+  it('进度区带 polite live region 语义，勾选后最新进度可被读屏整体播报', () => {
+    const progress = html.match(/data-testid="steps-progress"[^>]*/)?.[0] ?? '';
+    expect(progress).toContain('role="status"');
+    expect(progress).toContain('aria-live="polite"');
+    expect(progress).toContain('aria-atomic="true"');
+  });
+
+  it('打印卡完成标记初始为空框（勾选后由状态渲染为 ☑）', () => {
+    expect((html.match(/data-testid="print-step-box"/g) ?? []).length).toBe(5);
+    expect(html).toContain('data-testid="print-step-box">☐</td>');
+    expect(html).not.toContain('data-testid="print-step-box">☑</td>');
+  });
 });

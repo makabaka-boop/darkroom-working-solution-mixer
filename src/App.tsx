@@ -92,7 +92,9 @@ export default function App() {
     setChecked((prev) => prev.map((value, i) => (i === index ? !value : value)));
   };
 
-  const renderStep = (step: MeasureStep, index: number, capacity: number) => (
+  // tankNumber 仅在分罐时传入：步骤名称必须显式包含罐号，
+  // 否则不同罐中相同的液体/次数步骤对读屏用户无法区分。
+  const renderStep = (step: MeasureStep, index: number, capacity: number, tankNumber?: number) => (
     <li key={`${step.liquid}-${step.step}-${index}`} data-testid="measure-step">
       <label className={checked[index] ? 'step step--done' : 'step'}>
         <input
@@ -102,6 +104,7 @@ export default function App() {
           onChange={() => toggleStep(index)}
         />
         <span>
+          {tankNumber !== undefined && `罐 ${tankNumber}：`}
           {step.liquidLabel} 第 {step.step}/{step.ofSteps} 次：量取{' '}
           <strong data-testid="step-amount">{step.amount}</strong> mL
           {step.amount === capacity ? '（满量筒）' : '（余量）'}
@@ -175,7 +178,13 @@ export default function App() {
                 <>
                   <h3>
                     量取步骤
-                    <span className="progress" data-testid="steps-progress">
+                    <span
+                      className="progress"
+                      data-testid="steps-progress"
+                      role="status"
+                      aria-live="polite"
+                      aria-atomic="true"
+                    >
                       已勾选 {doneCount}/{displaySteps.length}
                     </span>
                   </h3>
@@ -191,7 +200,13 @@ export default function App() {
                   </p>
                   <h3>
                     分罐量取步骤
-                    <span className="progress" data-testid="steps-progress">
+                    <span
+                      className="progress"
+                      data-testid="steps-progress"
+                      role="status"
+                      aria-live="polite"
+                      aria-atomic="true"
+                    >
                       已勾选 {doneCount}/{displaySteps.length}
                     </span>
                   </h3>
@@ -203,7 +218,7 @@ export default function App() {
                       </h4>
                       <ol className="steps">
                         {tank.steps.map((step, i) =>
-                          renderStep(step, tankOffsets[tankIndex] + i, result.capacity),
+                          renderStep(step, tankOffsets[tankIndex] + i, result.capacity, tank.index),
                         )}
                       </ol>
                     </section>
@@ -256,9 +271,11 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {result.steps.map((step) => (
+                    {result.steps.map((step, stepIndex) => (
                       <tr key={`card-${step.liquid}-${step.step}`}>
-                        <td className="box">☐</td>
+                        <td className="box" data-testid="print-step-box">
+                          {checked[stepIndex] ? '☑' : '☐'}
+                        </td>
                         <td>{step.liquidLabel}</td>
                         <td>
                           {step.step}/{step.ofSteps}
@@ -303,7 +320,7 @@ export default function App() {
                     </tr>
                   </tbody>
                 </table>
-                {result.tankPlans.map((tank) => (
+                {result.tankPlans.map((tank, tankIndex) => (
                   <div key={`print-tank-${tank.index}`} data-testid="print-tank">
                     <h3>
                       罐 {tank.index}：目标 {tank.total} mL（浓缩液 {tank.concentrate} mL ＋ 清水{' '}
@@ -319,9 +336,11 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {tank.steps.map((step) => (
+                        {tank.steps.map((step, stepIndex) => (
                           <tr key={`card-tank-${tank.index}-${step.liquid}-${step.step}`}>
-                            <td className="box">☐</td>
+                            <td className="box" data-testid="print-step-box">
+                              {checked[tankOffsets[tankIndex] + stepIndex] ? '☑' : '☐'}
+                            </td>
                             <td>{step.liquidLabel}</td>
                             <td>
                               {step.step}/{step.ofSteps}
