@@ -41,6 +41,165 @@ header h1 {
   margin: 6px 0 24px;
 }
 
+/* 顶部功能切换：配液计算 / 容量台账 */
+.view-nav {
+  display: flex;
+  gap: 8px;
+  margin: -8px 0 20px;
+}
+
+.nav-tab {
+  padding: 8px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.nav-tab:hover {
+  color: var(--text);
+}
+
+.nav-tab--active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.panel-title {
+  margin: 0 0 14px;
+  font-size: 20px;
+}
+
+.action-button {
+  margin-top: 14px;
+  padding: 10px 22px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.action-button:hover {
+  filter: brightness(1.1);
+}
+
+/* 批次列表：整行可点选 */
+.batch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.batch-item {
+  width: 100%;
+  text-align: left;
+  background: #171114;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  font-size: 15px;
+  font-family: inherit;
+}
+
+.batch-item:hover {
+  border-color: var(--muted);
+}
+
+.batch-item--selected {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+}
+
+.batch-item__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 17px;
+}
+
+.batch-item__meta {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.batch-item__meta strong {
+  color: var(--text);
+}
+
+.status {
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  flex: none;
+}
+
+.status--active {
+  background: rgba(87, 201, 139, 0.16);
+  color: var(--ok);
+}
+
+.status--exhausted {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.records-title {
+  margin: 20px 0 8px;
+}
+
+.usage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.usage-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: baseline;
+  padding: 8px 4px;
+  border-bottom: 1px dashed var(--panel-border);
+}
+
+.usage-item:last-child {
+  border-bottom: none;
+}
+
+.usage-item__time {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.usage-item__remaining {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.usage-item__remaining strong {
+  color: var(--text);
+}
+
+.usage-item em {
+  color: var(--muted);
+  font-style: normal;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--panel-border);

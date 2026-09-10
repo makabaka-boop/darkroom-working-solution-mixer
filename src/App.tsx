@@ -11,6 +11,9 @@ import {
   type MeasureStep,
   type RawInputs,
 } from './lib/dilution';
+import Ledger from './Ledger';
+
+type View = 'mix' | 'ledger';
 
 const FIELDS: Array<{
   key: keyof RawInputs;
@@ -50,6 +53,8 @@ const FIELDS: Array<{
 ];
 
 export default function App() {
+  // 默认进入配液计算；容量台账通过顶部入口切换，两者状态互不干扰。
+  const [view, setView] = useState<View>('mix');
   const [raw, setRaw] = useState<RawInputs>({ n: '4', total: '1000', capacity: '250', tanks: '1' });
   const [checked, setChecked] = useState<boolean[]>([]);
 
@@ -118,8 +123,33 @@ export default function App() {
       <header className="no-print">
         <h1>暗房配液台</h1>
         <p className="tagline">按 1+n 稀释式计算浓缩液与清水，自动拆分量筒量取步骤</p>
+        <nav className="view-nav" aria-label="功能切换">
+          <button
+            type="button"
+            className={`nav-tab${view === 'mix' ? ' nav-tab--active' : ''}`}
+            data-testid="nav-mix"
+            aria-pressed={view === 'mix'}
+            onClick={() => setView('mix')}
+          >
+            配液计算
+          </button>
+          <button
+            type="button"
+            className={`nav-tab${view === 'ledger' ? ' nav-tab--active' : ''}`}
+            data-testid="nav-ledger"
+            aria-pressed={view === 'ledger'}
+            onClick={() => setView('ledger')}
+          >
+            容量台账
+          </button>
+        </nav>
       </header>
 
+      {view === 'ledger' ? (
+        <main>
+          <Ledger />
+        </main>
+      ) : (
       <main>
         <section className="panel no-print" aria-label="配液参数">
           <div className="fields">
@@ -366,6 +396,7 @@ export default function App() {
           </>
         )}
       </main>
+      )}
     </div>
   );
 }
