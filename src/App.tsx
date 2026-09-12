@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   computeMix,
   validateInputs,
@@ -20,9 +20,12 @@ import {
   type MixSourceSnapshot,
 } from './lib/capacityLedger';
 import { browserStorage, loadLedger, saveLedger } from './lib/ledgerStorage';
+import { loadSafelightState, saveSafelightState } from './lib/safelightStorage';
+import type { SafelightState } from './lib/safelightTest';
 import Ledger from './Ledger';
+import Safelight from './Safelight';
 
-type View = 'mix' | 'ledger';
+type View = 'mix' | 'ledger' | 'safelight';
 
 const FIELDS: Array<{
   key: keyof RawInputs;
@@ -62,7 +65,7 @@ const FIELDS: Array<{
 ];
 
 export default function App() {
-  // 默认进入配液计算；容量台账通过顶部入口切换，两者状态互不干扰。
+  // 默认进入配液计算；容量台账、安全灯测试通过顶部入口切换，三者状态互不干扰。
   const [view, setView] = useState<View>('mix');
   const [raw, setRaw] = useState<RawInputs>({ n: '4', total: '1000', capacity: '250', tanks: '1' });
   const [checked, setChecked] = useState<boolean[]>([]);
@@ -74,6 +77,26 @@ export default function App() {
   useEffect(() => {
     saveLedger(browserStorage(), ledger);
   }, [ledger]);
+
+  // 安全灯测试状态由本组件持有并持久化到独立的 localStorage 键，与台账互不影响。
+  // 存档损坏时 loadSafelightState 报告 corrupted：界面就地提示，
+  // 且在操作员经命令产出新数据之前（safelightTouched）不写回，
+  // 避免空白状态覆盖浏览器中尚存的最近一次数据。
+  const [safelightLoad] = useState(() => loadSafelightState(browserStorage()));
+  const [safelight, setSafelight] = useState<SafelightState>(safelightLoad.state);
+  const [safelightCorrupted, setSafelightCorrupted] = useState(safelightLoad.corrupted);
+  const safelightTouched = useRef(false);
+  useEffect(() => {
+    if (!safelightTouched.current) return;
+    saveSafelightState(browserStorage(), safelight);
+  }, [safelight]);
+
+  const handleSafelightChange = (next: SafelightState) => {
+    safelightTouched.current = true;
+    // 新数据由命令产出，覆盖损坏存档是操作员的有意行为，提示随之消失
+    setSafelightCorrupted(false);
+    setSafelight(next);
+  };
 
   // 「存入容量台账」表单（仅在配液结果合法时出现）
   const [storeName, setStoreName] = useState('');
@@ -215,6 +238,15 @@ export default function App() {
           >
             容量台账
           </button>
+          <button
+            type="button"
+            className={`nav-tab${view === 'safelight' ? ' nav-tab--active' : ''}`}
+            data-testid="nav-safelight"
+            aria-pressed={view === 'safelight'}
+            onClick={() => setView('safelight')}
+          >
+            安全灯测试
+          </button>
         </nav>
       </header>
 
@@ -225,6 +257,14 @@ export default function App() {
             onLedgerChange={setLedger}
             selectedId={selectedBatchId}
             onSelectBatch={setSelectedBatchId}
+          />
+        </main>
+      ) : view === 'safelight' ? (
+        <main>
+          <Safelight
+            safelight={safelight}
+            onSafelightChange={handleSafelightChange}
+            storageCorrupted={safelightCorrupted}
           />
         </main>
       ) : (

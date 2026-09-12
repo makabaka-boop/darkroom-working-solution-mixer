@@ -41,7 +41,7 @@ header h1 {
   margin: 6px 0 24px;
 }
 
-/* 顶部功能切换：配液计算 / 容量台账 */
+/* 顶部功能切换：配液计算 / 容量台账 / 安全灯测试 */
 .view-nav {
   display: flex;
   gap: 8px;
@@ -156,6 +156,72 @@ header h1 {
 .status--exhausted {
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+.status--done {
+  background: rgba(168, 147, 155, 0.16);
+  color: var(--muted);
+}
+
+/* 安全灯测试：条带阶梯、观察选项与结论 */
+.strip-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.strip-list li {
+  padding: 8px 4px;
+  border-bottom: 1px dashed var(--panel-border);
+}
+
+.strip-list li:last-child {
+  border-bottom: none;
+}
+
+.fog-options {
+  border: 1px dashed var(--panel-border);
+  border-radius: 8px;
+  padding: 8px 14px 12px;
+  margin: 0 0 6px;
+}
+
+.fog-options legend {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.fog-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.fog-options input {
+  accent-color: var(--accent);
+}
+
+.conclusion {
+  border: 1px dashed var(--panel-border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-top: 10px;
+}
+
+.conclusion p {
+  margin: 4px 0;
+}
+
+.storage-warning {
+  border: 1px dashed var(--accent);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 0 0 20px;
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .records-title {
