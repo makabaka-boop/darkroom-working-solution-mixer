@@ -197,6 +197,56 @@ test('损坏存储就地反馈且不覆盖原数据，新建测试后恢复可�
   await expect(page.getByTestId('safelight-item-name')).toHaveText('重建测试');
 });
 
+test('存档含重复测试或空时间时按损坏处理：就地提示且不覆盖原数据', async ({ page }) => {
+  // 重复 id：两条测试共用 t1，按 id 选中永远只能打开第一条，第二条无法正确打开
+  const duplicated = JSON.stringify({
+    tests: [
+      { id: 't1', name: '甲测试', startSeconds: 10, stepSeconds: 5, stripCount: 4, createdAt: '2026-09-12T08:00:00.000Z' },
+      { id: 't1', name: '乙测试', startSeconds: 20, stepSeconds: 10, stripCount: 3, createdAt: '2026-09-12T09:00:00.000Z' },
+    ],
+  });
+  await page.evaluate(([key, value]) => localStorage.setItem(key, value), [SAFELIGHT_KEY, duplicated]);
+  await page.reload();
+  await page.getByTestId('nav-safelight').click();
+  await expect(page.getByTestId('safelight-storage-corrupted')).toBeVisible();
+  await expect(page.getByTestId('safelight-item')).toHaveCount(0);
+  // 原数据未被空白状态覆盖
+  expect(await page.evaluate((key) => localStorage.getItem(key), SAFELIGHT_KEY)).toBe(duplicated);
+
+  // 空创建时间同样视为损坏
+  const emptyTime = JSON.stringify({
+    tests: [
+      { id: 't2', name: '空时间测试', startSeconds: 10, stepSeconds: 5, stripCount: 4, createdAt: '' },
+    ],
+  });
+  await page.evaluate(([key, value]) => localStorage.setItem(key, value), [SAFELIGHT_KEY, emptyTime]);
+  await page.reload();
+  await page.getByTestId('nav-safelight').click();
+  await expect(page.getByTestId('safelight-storage-corrupted')).toBeVisible();
+  await expect(page.getByTestId('safelight-item')).toHaveCount(0);
+  expect(await page.evaluate((key) => localStorage.getItem(key), SAFELIGHT_KEY)).toBe(emptyTime);
+
+  // 空评估时间（已完成结论里的 evaluatedAt 为空）也视为损坏
+  const emptyEvalTime = JSON.stringify({
+    tests: [
+      {
+        id: 't3',
+        name: '空评估时间测试',
+        startSeconds: 10,
+        stepSeconds: 5,
+        stripCount: 4,
+        createdAt: '2026-09-12T08:00:00.000Z',
+        evaluation: { firstFogStrip: 2, evaluatedAt: '' },
+      },
+    ],
+  });
+  await page.evaluate(([key, value]) => localStorage.setItem(key, value), [SAFELIGHT_KEY, emptyEvalTime]);
+  await page.reload();
+  await page.getByTestId('nav-safelight').click();
+  await expect(page.getByTestId('safelight-storage-corrupted')).toBeVisible();
+  await expect(page.getByTestId('safelight-item')).toHaveCount(0);
+});
+
 test('安全灯测试与配液计算、容量台账切换互不干扰', async ({ page }) => {
   // 在安全灯测试里建一个草稿
   await createTest(page, '切换测试', '10', '5', '4');

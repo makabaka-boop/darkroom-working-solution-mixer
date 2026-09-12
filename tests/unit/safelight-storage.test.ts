@@ -124,6 +124,13 @@ describe('安全灯测试持久化', () => {
       '{"tests":[{"id":"t1","name":"x","startSeconds":10,"stepSeconds":5,"stripCount":4,"createdAt":"t","evaluation":{"firstFogStrip":null}}]}',
       // startSeconds 为 null（超长数字 Infinity 被 JSON.stringify 后的形态）
       '{"tests":[{"id":"t1","name":"x","startSeconds":null,"stepSeconds":5,"stripCount":4,"createdAt":"t"}]}',
+      // 两条测试共用同一 id：按 id 选中时永远只能打开第一条，其余无法正确打开
+      '{"tests":[{"id":"t1","name":"甲","startSeconds":10,"stepSeconds":5,"stripCount":4,"createdAt":"t"},{"id":"t1","name":"乙","startSeconds":20,"stepSeconds":10,"stripCount":3,"createdAt":"t"}]}',
+      // 空创建时间（含纯空白）
+      '{"tests":[{"id":"t1","name":"x","startSeconds":10,"stepSeconds":5,"stripCount":4,"createdAt":""}]}',
+      '{"tests":[{"id":"t1","name":"x","startSeconds":10,"stepSeconds":5,"stripCount":4,"createdAt":"   "}]}',
+      // 空评估时间
+      '{"tests":[{"id":"t1","name":"x","startSeconds":10,"stepSeconds":5,"stripCount":4,"createdAt":"t","evaluation":{"firstFogStrip":2,"evaluatedAt":""}}]}',
     ];
     for (const payload of badPayloads) {
       storage.setItem(SAFELIGHT_STORAGE_KEY, payload);
@@ -132,6 +139,37 @@ describe('安全灯测试持久化', () => {
       expect(loaded.corrupted).toBe(true);
       expect(loaded.state).toEqual(EMPTY_SAFELIGHT);
     }
+  });
+
+  it('重复 id 的存档整体视为损坏，即使每条记录各自结构完整', () => {
+    const storage = memoryStorage();
+    // 两条记录各自的字段都合法，但 id 重复：界面按 id 选中时永远只能打开第一条，
+    // 第二条无法正确打开，因此整份数据不可信
+    const payload = JSON.stringify({
+      tests: [
+        {
+          id: 't1',
+          name: '甲测试',
+          startSeconds: 10,
+          stepSeconds: 5,
+          stripCount: 4,
+          createdAt: '2026-09-12T08:00:00.000Z',
+        },
+        {
+          id: 't1',
+          name: '乙测试',
+          startSeconds: 20,
+          stepSeconds: 10,
+          stripCount: 3,
+          createdAt: '2026-09-12T09:00:00.000Z',
+        },
+      ],
+    });
+    expect(parseSafelightState(payload)).toBeNull();
+    storage.setItem(SAFELIGHT_STORAGE_KEY, payload);
+    const loaded = loadSafelightState(storage);
+    expect(loaded.corrupted).toBe(true);
+    expect(loaded.state).toEqual(EMPTY_SAFELIGHT);
   });
 
   it('全部未起雾（firstFogStrip 为 null）的结论是合法数据，照常往返', () => {

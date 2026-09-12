@@ -3,7 +3,9 @@
  *
  * 测试草稿与已完成结论整体存为一个 JSON 文档；读取时逐字段校验结构，
  * 并强制执行与创建命令相同的不变量（条带数量范围、末条曝光不超过一小时、
- * 评估结果必须指向本次测试的条带）。
+ * 评估结果必须指向本次测试的条带）。此外：测试 id 不得重复
+ * （重复 id 的测试按 id 选中时永远只能打开第一条，其余无法正确打开），
+ * 创建 / 评估时间不得为空字符串。
  *
  * 与台账的关键区别：数据损坏时不静默当作空白——loadSafelightState 报告
  * corrupted，由界面就地反馈；调用方在操作员产出新数据之前不得写回，
@@ -36,7 +38,8 @@ function isPositiveInteger(value: unknown): value is number {
 function parseEvaluation(value: unknown, stripCount: number): SafelightEvaluation | null {
   if (typeof value !== 'object' || value === null) return null;
   const candidate = value as Record<string, unknown>;
-  if (typeof candidate.evaluatedAt !== 'string') return null;
+  // 评估时间必须是非空字符串：空时间无法向操作员展示「评估于何时」
+  if (!isNonEmptyString(candidate.evaluatedAt)) return null;
   const firstFog = candidate.firstFogStrip;
   // null = 全部未起雾；否则必须是指向本次测试条带的序号
   if (
@@ -63,7 +66,7 @@ function parseTest(value: unknown): SafelightTest | null {
     !Number.isSafeInteger(candidate.stripCount) ||
     candidate.stripCount < STRIPS_MIN ||
     candidate.stripCount > STRIPS_MAX ||
-    typeof candidate.createdAt !== 'string'
+    !isNonEmptyString(candidate.createdAt)
   ) {
     return null;
   }
@@ -98,9 +101,13 @@ export function parseSafelightState(json: string): SafelightState | null {
   const candidate = raw as Record<string, unknown>;
   if (!Array.isArray(candidate.tests)) return null;
   const tests: SafelightTest[] = [];
+  const seenIds = new Set<string>();
   for (const item of candidate.tests) {
     const test = parseTest(item);
-    if (!test) return null;
+    // 测试 id 必须唯一：重复 id 的测试按 id 选中时永远只能打开第一条，
+    // 其余记录无法正确打开，整份数据视为不可信
+    if (!test || seenIds.has(test.id)) return null;
+    seenIds.add(test.id);
     tests.push(test);
   }
   return { tests };
