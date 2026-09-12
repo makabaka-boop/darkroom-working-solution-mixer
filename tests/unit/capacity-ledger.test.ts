@@ -80,6 +80,25 @@ describe('createBatch 命令', () => {
     // 纯函数：传入状态原封不动
     expect(before.batches).toHaveLength(0);
   });
+
+  it('超长 / 超出安全整数范围的额定容量被拒绝，不写入且已有批次不受影响', () => {
+    const deps = testDeps();
+    const existing = mustCreate(EMPTY_LEDGER, '已有批次', '10', deps);
+    const cases = [
+      '9'.repeat(400), // parseInt 得 Infinity
+      String(2 ** 53 + 1), // 可解析但无法精确表示，会被静默舍入
+      String(2 ** 60),
+    ];
+    for (const capacity of cases) {
+      const result = createBatch(existing.state, { name: '异常批次', capacity }, deps);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toBe('数值过大，无法精确记录，请填写较小的整数');
+      // 失败不写入：原批次保留，异常批次绝不进入状态
+      expect(existing.state.batches).toHaveLength(1);
+      expect(existing.state.batches[0].name).toBe('已有批次');
+      expect(Number.isFinite(existing.state.batches[0].capacity)).toBe(true);
+    }
+  });
 });
 
 describe('recordUsage 命令', () => {
@@ -123,6 +142,17 @@ describe('recordUsage 命令', () => {
     // 不写入：记录数与累计用量保持登记前水平
     expect(after4.records).toHaveLength(1);
     expect(usedCapacity(after4, batch.id)).toBe(4);
+  });
+
+  it('超出安全整数范围的数量被拒绝且不写入，不会产生 Infinity 剩余量', () => {
+    const { deps, batch, state } = setup('10');
+    for (const films of ['9'.repeat(400), String(2 ** 53 + 1)]) {
+      const result = recordUsage(state, { batchId: batch.id, films }, deps);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toBe('数值过大，无法精确记录，请填写较小的整数');
+      expect(state.records).toHaveLength(0);
+      expect(remainingCapacity(batch, state)).toBe(10);
+    }
   });
 
   it('每条记录写入前重新计算剩余量：remainingAfter 逐条递减且与派生剩余一致', () => {

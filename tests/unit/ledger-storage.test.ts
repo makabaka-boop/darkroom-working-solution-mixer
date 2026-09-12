@@ -108,6 +108,12 @@ describe('容量台账持久化', () => {
       '{"batches":[{"id":"b1","name":"x","capacity":10,"createdAt":"t"}],"records":[{"id":"r1","batchId":"b1","films":1.5,"note":"","remainingAfter":8,"createdAt":"t"}]}',
       // 空名称批次
       '{"batches":[{"id":"b1","name":"  ","capacity":10,"createdAt":"t"}],"records":[]}',
+      // capacity 为 null（超长数字 Infinity 被 JSON.stringify 后的形态）
+      '{"batches":[{"id":"b1","name":"超长批次","capacity":null,"createdAt":"t"}],"records":[]}',
+      // capacity 超出安全整数范围（精度已丢失）
+      `{"batches":[{"id":"b1","name":"超长批次","capacity":${2 ** 54},"createdAt":"t"}],"records":[]}`,
+      // remainingAfter 超出安全整数范围
+      '{"batches":[{"id":"b1","name":"x","capacity":10,"createdAt":"t"}],"records":[{"id":"r1","batchId":"b1","films":1,"note":"","remainingAfter":9007199254740993,"createdAt":"t"}]}',
     ];
     for (const payload of badPayloads) {
       storage.setItem(LEDGER_STORAGE_KEY, payload);
@@ -116,8 +122,35 @@ describe('容量台账持久化', () => {
     }
   });
 
-  it('台账只通过命令增长：读回的状态可继续登记且剩余量连续', () => {
+  it('待写入状态无法往返校验时拒绝写入，存储中的原有台账原样保留', () => {
     const storage = memoryStorage();
+    const good = buildLedger();
+    saveLedger(storage, good);
+    const jsonBefore = storage.dump().get(LEDGER_STORAGE_KEY);
+    expect(jsonBefore).toBeDefined();
+
+    // 绕过命令手工构造异常状态（模拟超长容量解析为 Infinity / null 的脏数据）
+    const dirty: LedgerState = {
+      batches: [
+        ...good.batches,
+        {
+          id: 'dirty',
+          name: '异常批次',
+          capacity: Number.POSITIVE_INFINITY,
+          createdAt: '2026-09-12T00:00:00.000Z',
+        },
+      ],
+      records: good.records,
+    };
+    expect(parseLedger(JSON.stringify(dirty))).toBeNull();
+    saveLedger(storage, dirty);
+
+    // 异常写入被拒绝：旧文档未被覆盖，刷新后仍是原来的完整台账
+    expect(storage.dump().get(LEDGER_STORAGE_KEY)).toBe(jsonBefore);
+    expect(loadLedger(storage)).toEqual(good);
+  });
+
+  it('台账只通过命令增长：读回的状态可继续登记且剩余量连续', () => {    const storage = memoryStorage();
     const deps = testDeps();
     const created = createBatch(EMPTY_LEDGER, { name: '显影液', capacity: '3' }, deps);
     if (!created.ok) throw new Error('setup');

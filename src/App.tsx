@@ -108,6 +108,19 @@ export default function App() {
     setChecked(displaySteps.map(() => false));
   }, [displaySteps]);
 
+  // 待建档的名称 / 额定容量只从属于「当前这一次」配液参数：
+  // 参数一变化（含变为非法导致结果消失）就重置草稿与错误，
+  // 避免旧名称、旧额定容量附着在新计算结果上被误存入台账。
+  // 依赖原始参数串而非 result：切换顶部标签页会重挂载结果区、产生新的 result，
+  // 但参数未变，草稿应保留（与配液表单/结果跨标签保留的行为一致）。
+  const rawSignature = `${raw.n}|${raw.total}|${raw.capacity}|${raw.tanks}`;
+  useEffect(() => {
+    setStoreName('');
+    setStoreCapacity('');
+    setStoreNameError(null);
+    setStoreCapacityError(null);
+  }, [rawSignature]);
+
   const doneCount = checked.filter(Boolean).length;
   const stepsSum = displaySteps.reduce((sum, s) => sum + s.amount, 0);
   const cardDate = useMemo(() => new Date().toLocaleDateString('zh-CN'), [result]);

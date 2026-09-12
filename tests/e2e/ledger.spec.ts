@@ -143,6 +143,77 @@ test('多批次各自独立累计，选中批次才登记到对应台账', async
   await expect(batchB.getByTestId('batch-remaining')).toHaveText('3');
 });
 
+test('超长额定容量被就地拒绝：不创建异常批次，刷新后已有台账保留', async ({ page }) => {
+  await page.getByTestId('nav-ledger').click();
+
+  // 先建立一个正常批次
+  await page.getByTestId('batch-name-input').fill('正常批次');
+  await page.getByTestId('batch-capacity-input').fill('10');
+  await page.getByTestId('create-batch-button').click();
+  await expect(page.getByTestId('batch-item')).toHaveCount(1);
+  await expect(page.getByTestId('batch-capacity')).toHaveText('10');
+
+  // 超长数字（parseInt 为 Infinity）：就地拒绝，不显示异常数值
+  await page.getByTestId('batch-name-input').fill('超长批次');
+  await page.getByTestId('batch-capacity-input').fill('9'.repeat(400));
+  await page.getByTestId('create-batch-button').click();
+  await expect(page.getByTestId('error-batch-capacity')).toHaveText(
+    '数值过大，无法精确记录，请填写较小的整数',
+  );
+  await expect(page.getByTestId('batch-item')).toHaveCount(1);
+  await expect(page.getByTestId('batch-name')).toHaveText('正常批次');
+  await expect(page.getByTestId('batch-capacity')).toHaveText('10');
+
+  // 精度丢失边界 2^53+1 同样拒绝
+  await page.getByTestId('batch-capacity-input').fill(String(2 ** 53 + 1));
+  await page.getByTestId('create-batch-button').click();
+  await expect(page.getByTestId('error-batch-capacity')).toHaveText(
+    '数值过大，无法精确记录，请填写较小的整数',
+  );
+  await expect(page.getByTestId('batch-item')).toHaveCount(1);
+
+  // 刷新：原台账完好，没有因异常批次而整体消失
+  await page.reload();
+  await page.getByTestId('nav-ledger').click();
+  await expect(page.getByTestId('batch-item')).toHaveCount(1);
+  await expect(page.getByTestId('batch-name')).toHaveText('正常批次');
+  await expect(page.getByTestId('batch-capacity')).toHaveText('10');
+});
+
+test('切换批次时未提交的用量与备注草稿被清空，不会误登记到新批次', async ({ page }) => {
+  await page.getByTestId('nav-ledger').click();
+
+  await page.getByTestId('batch-name-input').fill('批次 A');
+  await page.getByTestId('batch-capacity-input').fill('10');
+  await page.getByTestId('create-batch-button').click();
+  await page.getByTestId('batch-name-input').fill('批次 B');
+  await page.getByTestId('batch-capacity-input').fill('10');
+  await page.getByTestId('create-batch-button').click();
+  await expect(page.getByTestId('batch-item')).toHaveCount(2);
+
+  // 当前自动选中 B：填写但不提交
+  await expect(page.getByTestId('films-input')).toHaveValue('');
+  await page.getByTestId('films-input').fill('3');
+  await page.getByTestId('note-input').fill('给 B 的备注');
+
+  // 切到 A：草稿与错误被一并丢弃
+  await page.getByTestId('batch-item').first().click();
+  await expect(page.getByTestId('films-input')).toHaveValue('');
+  await expect(page.getByTestId('note-input')).toHaveValue('');
+  await expect(page.getByTestId('usage-empty')).toBeVisible();
+
+  // 直接在 A 提交不会带入 B 的草稿：表单为空，提示必填，且没有任何记录写入
+  await page.getByTestId('record-usage-button').click();
+  await expect(page.getByTestId('error-films')).toHaveText('请输入等效胶片数量');
+  await expect(page.getByTestId('usage-item')).toHaveCount(0);
+  await expect(page.getByTestId('detail-used')).toHaveText('0');
+
+  // B 同样没有被误登记
+  await page.getByTestId('batch-item').nth(1).click();
+  await expect(page.getByTestId('usage-empty')).toBeVisible();
+  await expect(page.getByTestId('detail-used')).toHaveText('0');
+});
+
 test('配液计算与容量台账切换互不干扰，各自状态保留', async ({ page }) => {
   // 先在配液计算里改参数
   await page.getByTestId('input-total').fill('2000');

@@ -19,6 +19,7 @@
  * 校验失败时返回中文原因且不产生任何写入：
  * - 名称为空；
  * - 额定容量 / 胶片数量为空、非整数或非正整数；
+ * - 数值超出安全整数范围（超长数字无法精确表示，显示会异常）；
  * - 登记数量超过当前剩余容量；
  * - 附带的配液来源快照结构不完整或违反「浓缩液 + 清水 = 目标总量」。
  * 字段校验函数同时导出，界面可借此把错误放到对应字段下方，
@@ -111,17 +112,31 @@ export type CommandResult<T> =
   | { ok: true; value: T; state: LedgerState }
   | { ok: false; error: string };
 
-/** 严格解析整数字符串：拒绝空串、小数、非数字字符。 */
+/**
+ * 严格解析整数字符串：拒绝空串、小数、非数字字符；
+ * 超长数字（超过 Number.MAX_SAFE_INTEGER）也拒绝——
+ * 这类数字无法精确表示（可能变为 Infinity 或被舍入），
+ * 一旦入库会造成界面显示异常、持久化往返失败。
+ */
 function parseStrictInteger(raw: string): number | null {
   const text = raw.trim();
   if (text === '') return null;
   if (!/^[+-]?\d+$/.test(text)) return null;
-  return Number.parseInt(text, 10);
+  const value = Number.parseInt(text, 10);
+  if (!Number.isSafeInteger(value)) return null;
+  return value;
 }
 
-/** 判断未知值是否为正整数（用于快照结构校验）。 */
+/** 是否为「全是数字、但已超出安全整数范围」的超长输入（用于给出专用提示）。 */
+function isUnsafeDigits(raw: string): boolean {
+  const text = raw.trim();
+  if (!/^[+-]?\d+$/.test(text)) return false;
+  return !Number.isSafeInteger(Number.parseInt(text, 10));
+}
+
+/** 判断未知值是否为正的安全整数（用于快照结构校验）。 */
 function isPositiveIntegerValue(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
 /**
@@ -151,18 +166,23 @@ export function validateBatchName(name: string): string | undefined {
   return undefined;
 }
 
-/** 额定容量校验：正整数。 */
+/** 数字过大（超出安全整数范围）时的统一提示。 */
+export const INTEGER_TOO_LARGE_MESSAGE = '数值过大，无法精确记录，请填写较小的整数';
+
+/** 额定容量校验：可精确表示的正整数（拒绝超出安全整数范围的超长数字）。 */
 export function validateCapacityInput(raw: string): string | undefined {
   if (raw.trim() === '') return '请输入额定容量';
+  if (isUnsafeDigits(raw)) return INTEGER_TOO_LARGE_MESSAGE;
   const value = parseStrictInteger(raw);
   if (value === null) return '额定容量必须为整数，不能含小数或字母';
   if (value <= 0) return '额定容量须为大于 0 的整数';
   return undefined;
 }
 
-/** 登记数量校验：正整数（是否超过剩余容量由 recordUsage 判定）。 */
+/** 登记数量校验：可精确表示的正整数（是否超过剩余容量由 recordUsage 判定）。 */
 export function validateFilmsInput(raw: string): string | undefined {
   if (raw.trim() === '') return '请输入等效胶片数量';
+  if (isUnsafeDigits(raw)) return INTEGER_TOO_LARGE_MESSAGE;
   const value = parseStrictInteger(raw);
   if (value === null) return '数量必须为整数，不能含小数或字母';
   if (value <= 0) return '数量须为大于 0 的整数';

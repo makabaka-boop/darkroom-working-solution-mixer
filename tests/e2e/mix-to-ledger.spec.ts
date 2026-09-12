@@ -104,6 +104,43 @@ test('任一配液参数变为非法时，存入入口随结果一同消失', as
   await expect(page.getByTestId('store-to-ledger')).toBeVisible();
 });
 
+test('改变配液参数后，待建档的名称与额定容量随旧结果一起重置', async ({ page }) => {
+  // 默认 1+4 / 1000 mL，结果合法，入口可见
+  await expect(page.getByTestId('store-to-ledger')).toBeVisible();
+
+  // 为当前结果填写建档信息（不提交）
+  await page.getByTestId('store-name-input').fill('旧批次名称');
+  await page.getByTestId('store-capacity-input').fill('99');
+  await expect(page.getByTestId('store-name-input')).toHaveValue('旧批次名称');
+  await expect(page.getByTestId('store-capacity-input')).toHaveValue('99');
+
+  // 改变配液参数：得到新的计算结果，旧建档草稿必须重置
+  await page.getByTestId('input-n').fill('9');
+  await expect(page.getByTestId('result-concentrate')).toHaveText('100 mL');
+  await expect(page.getByTestId('store-name-input')).toHaveValue('');
+  await expect(page.getByTestId('store-capacity-input')).toHaveValue('');
+  await expect(page.getByTestId('error-store-name')).toHaveCount(0);
+  await expect(page.getByTestId('error-store-capacity')).toHaveCount(0);
+
+  // 参数变为非法（结果消失）时草稿同样被清空；恢复后入口可用且表单为空
+  await page.getByTestId('store-name-input').fill('不应残留');
+  await page.getByTestId('input-total').fill('99');
+  await expect(page.getByTestId('result-card')).toHaveCount(0);
+  await page.getByTestId('input-total').fill('1000');
+  await expect(page.getByTestId('store-to-ledger')).toBeVisible();
+  await expect(page.getByTestId('store-name-input')).toHaveValue('');
+  await expect(page.getByTestId('store-capacity-input')).toHaveValue('');
+
+  // 用新参数建档：快照取自新结果（1+9 → 浓缩液 100 mL），不带旧名称 / 旧容量
+  await page.getByTestId('store-name-input').fill('新批次名称');
+  await page.getByTestId('store-capacity-input').fill('12');
+  await page.getByTestId('store-to-ledger-button').click();
+  await expect(page.getByTestId('batch-name')).toHaveText('新批次名称');
+  await expect(page.getByTestId('batch-capacity')).toHaveText('12');
+  await expect(page.getByTestId('mix-source-summary')).toContainText('稀释式 1+9');
+  await expect(page.getByTestId('mix-source-summary')).toContainText('浓缩液 100 mL');
+});
+
 test('手工创建的批次没有来源摘要，原有创建与登记流程不受影响', async ({ page }) => {
   await page.getByTestId('nav-ledger').click();
   await page.getByTestId('batch-name-input').fill('定影液');

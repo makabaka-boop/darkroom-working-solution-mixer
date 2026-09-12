@@ -30,11 +30,13 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 function isPositiveInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+  // 必须是安全整数：非安全整数（如 Infinity、超长数字解析值、2^53 以上的舍入值）
+  // 无法精确往返，JSON 序列化后可能变成 null，会污染整份台账。
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
 function isNonNegativeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 function parseBatch(value: unknown): ChemicalBatch | null {
@@ -136,10 +138,17 @@ export function loadLedger(storage: StorageLike | undefined): LedgerState {
   return parseLedger(json) ?? EMPTY_LEDGER;
 }
 
-/** 整体写入台账（调用方保证传入的是命令产出的新状态）。 */
+/**
+ * 整体写入台账（调用方保证传入的是命令产出的新状态）。
+ * 写入前做一次「序列化 → 反序列化」往返校验：
+ * 若产出的状态无法被本模块原样读回（含 Infinity / null 等无法精确表示的值），
+ * 则拒绝写入并保留存储中的旧台账，避免一次异常写入让刷新后整份台账消失。
+ */
 export function saveLedger(storage: StorageLike | undefined, state: LedgerState): void {
   if (!storage) return;
-  storage.setItem(LEDGER_STORAGE_KEY, serializeLedger(state));
+  const json = serializeLedger(state);
+  if (parseLedger(json) === null) return;
+  storage.setItem(LEDGER_STORAGE_KEY, json);
 }
 
 /** 浏览器环境下的默认存储；SSR / 测试环境下为 undefined。 */

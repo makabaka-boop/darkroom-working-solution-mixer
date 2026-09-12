@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   BATCH_STATUS_LABEL,
   batchRecords,
@@ -51,6 +51,16 @@ export default function Ledger({ ledger, onLedgerChange, selectedId, onSelectBat
 
   const selected = ledger.batches.find((batch) => batch.id === selectedId) ?? null;
   const selectedRecords = selected ? batchRecords(ledger, selected.id) : [];
+
+  // 切换（或取消）选中批次时，丢弃上一批尚未提交的用量 / 备注草稿与错误，
+  // 避免操作员在 A 批次填写后直接记到 B 批次（跨批次误登记）。
+  // 仅随选中批次变化触发：同批次内登记成功后由提交逻辑自行清空输入。
+  const selectedKey = selected?.id ?? null;
+  useEffect(() => {
+    setFilms('');
+    setNote('');
+    setFilmsError(null);
+  }, [selectedKey]);
 
   const submitCreate = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -173,7 +183,6 @@ export default function Ledger({ ledger, onLedgerChange, selectedId, onSelectBat
                     aria-pressed={isSelected}
                     onClick={() => {
                       onSelectBatch(batch.id);
-                      setFilmsError(null);
                     }}
                   >
                     <span className="batch-item__head">
